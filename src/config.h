@@ -33,7 +33,7 @@ struct SimulationConfig {
     float restitutionThreshold = 50.0f; // px/s; below this, wall contacts are plastic (e=0)
 
     std::size_t maxBalls = 100000;
-    float maxBallRadius = 1.1f;         // grid cell size = 2 * maxBallRadius
+    float maxBallRadius = 2.5f;         // grid cell size = 2 * maxBallRadius
 
     float fixedDt = 1.0f / 60.0f;
     int maxStepsPerFrame = 5;
@@ -48,8 +48,8 @@ struct SpawnRequest {
     float spreadRadians = 0.04f;        // half-angle of the cone — tight beam, little scatter
     float minSpeed = 1500.0f;           // px/s — the "pressure"
     float maxSpeed = 1750.0f;
-    float minRadius = 0.7f;
-    float maxRadius = 1.1f;
+    float minRadius = 1.5f;
+    float maxRadius = 2.5f;
     std::uint32_t color = 0;
 };
 
