@@ -14,7 +14,7 @@ struct Bounds {
 
 // All tunables in one place; the app layer owns this, the physics core only reads it.
 struct SimulationConfig {
-    Bounds window{1920.0f, 1080.0f};
+    Bounds window{800.0f, 450.0f};
 
     float gravity = 1500.0f;            // px/s^2, +y is down (SDL coordinates)
     float wallRestitution = 0.55f;
@@ -38,7 +38,7 @@ struct SimulationConfig {
 struct SpawnRequest {
     Vec2 origin;                        // nozzle position, set by the app from the window size
     float directionRadians = -0.17f;    // 0 = +x, negative = slightly upward
-    float spreadRadians = 0.12f;        // half-angle of the cone
+    float spreadRadians = 0.04f;        // half-angle of the cone — tight beam, little scatter
     float minSpeed = 1500.0f;           // px/s — the "pressure"
     float maxSpeed = 1750.0f;
     float minRadius = 1.5f;

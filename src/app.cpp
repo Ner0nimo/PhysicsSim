@@ -75,6 +75,8 @@ int runApp(const SimulationConfig& cfg, const SpawnRequest& jet, const AppOption
     double physicsMs = 0.0;
     double renderMs = 0.0;
     double totalSeconds = 0.0;
+    double emaPhys = 0.0, emaRender = 0.0, emaFrame = 0.0; // smoothed values for the HUD
+    bool emaInit = false;
 
     bool running = true;
     while (running) {
@@ -112,7 +114,8 @@ int runApp(const SimulationConfig& cfg, const SpawnRequest& jet, const AppOption
             ++steps;
         }
         if (steps == cfg.maxStepsPerFrame) accumulator = 0.0; // drop backlog, avoid spiral of death
-        physicsMs += 1000.0 * static_cast<double>(SDL_GetPerformanceCounter() - stepStart) / freq;
+        double stepMs = 1000.0 * static_cast<double>(SDL_GetPerformanceCounter() - stepStart) / freq;
+        physicsMs += stepMs;
 
         std::uint64_t renderStart = SDL_GetPerformanceCounter();
         renderer.clear(0x101018);
@@ -122,9 +125,23 @@ int runApp(const SimulationConfig& cfg, const SpawnRequest& jet, const AppOption
             SDL_RenderClear(sdlRenderer);
             SDL_RenderCopy(sdlRenderer, ballTexture, nullptr, nullptr);
             drawNozzle(sdlRenderer, request.origin, request.directionRadians, 60.0f, 8.0f);
+            drawHud(sdlRenderer, ps.count, emaPhys, emaRender, emaFrame);
             SDL_RenderPresent(sdlRenderer);
         }
-        renderMs += 1000.0 * static_cast<double>(SDL_GetPerformanceCounter() - renderStart) / freq;
+        double rendMs = 1000.0 * static_cast<double>(SDL_GetPerformanceCounter() - renderStart) / freq;
+        renderMs += rendMs;
+
+        double frameMs = frameDt * 1000.0;
+        if (!emaInit) {
+            emaPhys = stepMs;
+            emaRender = rendMs;
+            emaFrame = frameMs;
+            emaInit = true;
+        } else {
+            emaPhys = 0.9 * emaPhys + 0.1 * stepMs;
+            emaRender = 0.9 * emaRender + 0.1 * rendMs;
+            emaFrame = 0.9 * emaFrame + 0.1 * frameMs;
+        }
 
         ++frameNo;
         ++statsFrames;

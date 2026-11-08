@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 #include <SDL2_gfxPrimitives.h>
 
@@ -55,6 +56,19 @@ void drawNozzle(SDL_Renderer* renderer, Vec2 origin, float directionRadians, flo
     Sint16 ex = x + static_cast<Sint16>(std::cos(directionRadians) * jetLength);
     Sint16 ey = y + static_cast<Sint16>(std::sin(directionRadians) * jetLength);
     aalineRGBA(renderer, x, y, ex, ey, 200, 200, 210, 255);
+}
+
+void drawHud(SDL_Renderer* renderer, std::size_t objects, double physMs, double renderMs, double frameMs) {
+    char lines[4][48];
+    std::snprintf(lines[0], sizeof lines[0], "OBJECTS %zu", objects);
+    std::snprintf(lines[1], sizeof lines[1], "PHYSICS %.2f MS", physMs);
+    std::snprintf(lines[2], sizeof lines[2], "RENDER  %.2f MS", renderMs);
+    std::snprintf(lines[3], sizeof lines[3], "FRAME   %.2f MS", frameMs);
+
+    boxRGBA(renderer, 8, 8, 8 + 19 * 8, 8 + 4 * 9 + 6, 10, 10, 14, 170);
+    for (int i = 0; i < 4; ++i) {
+        stringRGBA(renderer, 12, 11 + i * 9, lines[i], 235, 235, 235, 255);
+    }
 }
 
 } // namespace phys

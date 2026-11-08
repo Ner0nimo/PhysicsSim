@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include <SDL.h>
@@ -27,5 +28,8 @@ private:
 
 // Nozzle marker drawn with SDL2_gfx directly onto the SDL_Renderer (on top of the ball texture).
 void drawNozzle(SDL_Renderer* renderer, Vec2 origin, float directionRadians, float jetLength, float nozzleRadius);
+
+// Frametime HUD: object count plus Physics/Render/Frame times in ms (SDL2_gfx 8x8 font).
+void drawHud(SDL_Renderer* renderer, std::size_t objects, double physMs, double renderMs, double frameMs);
 
 } // namespace phys
