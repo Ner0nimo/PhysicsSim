@@ -20,12 +20,18 @@ void ParticleSystem::reserve(std::size_t cap) {
     vy.reserve(cap);
     radius.reserve(cap);
     color.reserve(cap);
+    sleepTimer.reserve(cap);
+    contact.reserve(cap);
     x.resize(cap);
     y.resize(cap);
     vx.resize(cap);
     vy.resize(cap);
     radius.resize(cap);
+    xPrev.resize(cap);
+    yPrev.resize(cap);
     color.resize(cap);
+    sleepTimer.resize(cap);
+    contact.resize(cap);
 }
 
 void ParticleSystem::clear() {
@@ -49,10 +55,14 @@ SpawnResult spawnJet(ParticleSystem& ps, const SpawnRequest& jet, std::size_t wa
         float s = speed(rng);
         ps.x[i] = jet.origin.x + jitterPos(rng);
         ps.y[i] = jet.origin.y + jitterPos(rng);
+        ps.xPrev[i] = ps.x[i];
+        ps.yPrev[i] = ps.y[i];
         ps.vx[i] = std::cos(angle) * s;
         ps.vy[i] = std::sin(angle) * s;
         ps.radius[i] = radius(rng);
         ps.color[i] = jet.color != 0 ? jet.color : hsvToRgb(ps.hueCursor, 0.85f, 1.0f);
+        ps.sleepTimer[i] = 0.0f;
+        ps.contact[i] = 0;
         ps.hueCursor += kHueStepPerBall;
         if (ps.hueCursor >= 1.0f) ps.hueCursor -= 1.0f;
     }
@@ -62,8 +72,8 @@ SpawnResult spawnJet(ParticleSystem& ps, const SpawnRequest& jet, std::size_t wa
 }
 
 void applyOrder(ParticleSystem& ps, const std::vector<int>& order) {
-    auto gather = [&](std::vector<float>& v) {
-        std::vector<float> tmp(v.size());
+    auto gather = [&]<typename T>(std::vector<T>& v) {
+        std::vector<T> tmp(v.size());
         for (std::size_t j = 0; j < ps.count; ++j) tmp[j] = v[static_cast<std::size_t>(order[j])];
         v.swap(tmp);
     };
@@ -72,9 +82,11 @@ void applyOrder(ParticleSystem& ps, const std::vector<int>& order) {
     gather(ps.vx);
     gather(ps.vy);
     gather(ps.radius);
-    std::vector<std::uint32_t> tmpC(ps.color.size());
-    for (std::size_t j = 0; j < ps.count; ++j) tmpC[j] = ps.color[static_cast<std::size_t>(order[j])];
-    ps.color.swap(tmpC);
+    gather(ps.xPrev);
+    gather(ps.yPrev);
+    gather(ps.color);
+    gather(ps.sleepTimer);
+    gather(ps.contact);
 }
 
 } // namespace phys

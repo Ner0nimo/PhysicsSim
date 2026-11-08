@@ -13,7 +13,10 @@ namespace phys {
 // no more balls are added (the cap is a hard stop, not a ring buffer).
 struct ParticleSystem {
     std::vector<float> x, y, vx, vy, radius;
+    std::vector<float> xPrev, yPrev; // position at step start, for the PBD velocity update
     std::vector<std::uint32_t> color;
+    std::vector<float> sleepTimer;   // seconds the ball has been slow; >= cfg.sleepAfter means asleep
+    std::vector<std::uint8_t> contact; // set during the pair solve when the ball touched something this step
 
     std::size_t count = 0;
     float hueCursor = 0.0f; // rainbow mode: hue advances per spawned ball

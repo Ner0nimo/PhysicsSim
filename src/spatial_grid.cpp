@@ -5,13 +5,14 @@
 
 namespace phys {
 
-void SpatialGrid::build(const ParticleSystem& ps, float worldWidth, float worldHeight, float cellSize_) {
-    cellSize = cellSize_;
-    cols = std::max(1, static_cast<int>(std::ceil(worldWidth / cellSize)));
-    rows = std::max(1, static_cast<int>(std::ceil(worldHeight / cellSize)));
+void SpatialGrid::build(const ParticleSystem& ps, const SimulationConfig& cfg) {
+    cellSize = 2.0f * cfg.maxBallRadius;
+    cols = std::max(1, static_cast<int>(std::ceil(cfg.window.width / cellSize)));
+    rows = std::max(1, static_cast<int>(std::ceil(cfg.window.height / cellSize)));
 
     const int numCells = cols * rows;
     offsets.assign(numCells + 1, 0);
+    awakeInCell.assign(numCells, 0);
 
     auto cellOf = [&](std::size_t i) {
         int cx = static_cast<int>(ps.x[i] / cellSize);
@@ -25,6 +26,7 @@ void SpatialGrid::build(const ParticleSystem& ps, float worldWidth, float worldH
     for (std::size_t i = 0; i < ps.count; ++i) {
         cellIndexOf[i] = cellOf(i);
         ++offsets[cellIndexOf[i] + 1];
+        if (ps.sleepTimer[i] < cfg.sleepAfter) ++awakeInCell[cellIndexOf[i]];
     }
     for (int c = 0; c < numCells; ++c) offsets[c + 1] += offsets[c];
 

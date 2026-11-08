@@ -1,5 +1,6 @@
 #include "simulation.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "spatial_grid.h"
@@ -9,44 +10,71 @@ namespace phys {
 
 namespace {
 
-// One level down from stepSimulation: a single ball under gravity and damping.
+// Integrate one ball: gravity, damping, predictive wall bounce, then move.
+// A sleeping ball is frozen (v = 0) until a hard impact wakes it (see separatePair).
 void integrateBall(ParticleSystem& ps, std::size_t i, const SimulationConfig& cfg, float dt) {
+    ps.contact[i] = 0; // re-set by the pair solve if the ball touches something this step
+    if (ps.sleepTimer[i] >= cfg.sleepAfter) {
+        ps.vx[i] = 0.0f;
+        ps.vy[i] = 0.0f;
+        return;
+    }
+    ps.xPrev[i] = ps.x[i];
+    ps.yPrev[i] = ps.y[i];
+
     ps.vy[i] += cfg.gravity * dt;
     ps.vx[i] *= cfg.damping;
     ps.vy[i] *= cfg.damping;
-    ps.x[i] += ps.vx[i] * dt;
-    ps.y[i] += ps.vy[i] * dt;
-}
 
-// A single ball against the four window walls.
-void resolveWall(ParticleSystem& ps, std::size_t i, const SimulationConfig& cfg) {
+    // Predictive wall: reflect the velocity before moving, so the ball never
+    // penetrates and the PBD velocity update below keeps the bounce.
     float r = ps.radius[i];
     float right = cfg.window.width - r;
     float bottom = cfg.window.height - r;
+    float nextX = ps.x[i] + ps.vx[i] * dt;
+    float nextY = ps.y[i] + ps.vy[i] * dt;
+    if (nextX < r) {
+        float e = std::abs(ps.vx[i]) > cfg.restitutionThreshold ? cfg.wallRestitution : 0.0f;
+        ps.vx[i] = e * std::abs(ps.vx[i]);
+        ps.vy[i] *= (1.0f - cfg.wallFriction);
+    } else if (nextX > right) {
+        float e = std::abs(ps.vx[i]) > cfg.restitutionThreshold ? cfg.wallRestitution : 0.0f;
+        ps.vx[i] = -e * std::abs(ps.vx[i]);
+        ps.vy[i] *= (1.0f - cfg.wallFriction);
+    }
+    if (nextY < r) {
+        float e = std::abs(ps.vy[i]) > cfg.restitutionThreshold ? cfg.wallRestitution : 0.0f;
+        ps.vy[i] = e * std::abs(ps.vy[i]);
+        ps.vx[i] *= (1.0f - cfg.wallFriction);
+    } else if (nextY > bottom) {
+        float e = std::abs(ps.vy[i]) > cfg.restitutionThreshold ? cfg.wallRestitution : 0.0f;
+        ps.vy[i] = -e * std::abs(ps.vy[i]);
+        ps.vx[i] *= (1.0f - cfg.wallFriction);
+    }
 
-    if (ps.x[i] < r) {
-        ps.x[i] = r;
-        ps.vx[i] = -ps.vx[i] * cfg.wallRestitution;
-        ps.vy[i] *= (1.0f - cfg.wallFriction);
-    } else if (ps.x[i] > right) {
-        ps.x[i] = right;
-        ps.vx[i] = -ps.vx[i] * cfg.wallRestitution;
-        ps.vy[i] *= (1.0f - cfg.wallFriction);
-    }
-    if (ps.y[i] < r) {
-        ps.y[i] = r;
-        ps.vy[i] = -ps.vy[i] * cfg.wallRestitution;
-        ps.vx[i] *= (1.0f - cfg.wallFriction);
-    } else if (ps.y[i] > bottom) {
-        ps.y[i] = bottom;
-        ps.vy[i] = -ps.vy[i] * cfg.wallRestitution;
-        ps.vx[i] *= (1.0f - cfg.wallFriction);
-    }
+    ps.x[i] += ps.vx[i] * dt;
+    ps.y[i] += ps.vy[i] * dt;
+
+    float speedSq = ps.vx[i] * ps.vx[i] + ps.vy[i] * ps.vy[i];
+    if (speedSq < cfg.sleepSpeed * cfg.sleepSpeed) ps.sleepTimer[i] += dt;
+    else ps.sleepTimer[i] = 0.0f;
 }
 
-// A single overlapping pair: positional correction (also baked into the velocity,
-// PBD-style, so a pile supports itself without many iterations) plus an impulse.
-void resolvePair(ParticleSystem& ps, std::size_t i, std::size_t j, const SimulationConfig& cfg, float dt) {
+// Safety clamp: positions never leave the window.
+void clampWall(ParticleSystem& ps, std::size_t i, const SimulationConfig& cfg) {
+    float r = ps.radius[i];
+    ps.x[i] = std::clamp(ps.x[i], r, cfg.window.width - r);
+    ps.y[i] = std::clamp(ps.y[i], r, cfg.window.height - r);
+}
+
+// Positional-only pair separation (PBD). Two sleeping balls don't interact —
+// the settled pile is frozen and costs nothing. A large correction means a
+// hard impact and wakes both balls.
+void separatePair(ParticleSystem& ps, std::size_t i, std::size_t j, const SimulationConfig& cfg) {
+    bool iAsleep = ps.sleepTimer[i] >= cfg.sleepAfter;
+    bool jAsleep = ps.sleepTimer[j] >= cfg.sleepAfter;
+    if (iAsleep && jAsleep) return;
+
     float dx = ps.x[j] - ps.x[i];
     float dy = ps.y[j] - ps.y[i];
     float radiusSum = ps.radius[i] + ps.radius[j];
@@ -64,36 +92,17 @@ void resolvePair(ParticleSystem& ps, std::size_t i, std::size_t j, const Simulat
         ny = dy / dist;
     }
 
-    float overlap = radiusSum - dist;
-    float corr = overlap * cfg.positionalCorrection * 0.5f;
+    float corr = std::min((radiusSum - dist) * cfg.positionalCorrection * 0.5f, cfg.maxPairCorrection);
     ps.x[i] -= nx * corr;
     ps.y[i] -= ny * corr;
     ps.x[j] += nx * corr;
     ps.y[j] += ny * corr;
+    ps.contact[i] = 1;
+    ps.contact[j] = 1;
 
-    float velCorr = corr / dt;
-    ps.vx[i] -= nx * velCorr;
-    ps.vy[i] -= ny * velCorr;
-    ps.vx[j] += nx * velCorr;
-    ps.vy[j] += ny * velCorr;
-
-    float relVx = ps.vx[j] - ps.vx[i];
-    float relVy = ps.vy[j] - ps.vy[i];
-    float vn = relVx * nx + relVy * ny;
-    if (vn < 0.0f) {
-        float impulse = -(1.0f + cfg.ballRestitution) * vn * 0.5f;
-        ps.vx[i] -= nx * impulse;
-        ps.vy[i] -= ny * impulse;
-        ps.vx[j] += nx * impulse;
-        ps.vy[j] += ny * impulse;
-
-        float tx = relVx - vn * nx;
-        float ty = relVy - vn * ny;
-        float f = cfg.ballFriction * 0.5f;
-        ps.vx[i] += tx * f;
-        ps.vy[i] += ty * f;
-        ps.vx[j] -= tx * f;
-        ps.vy[j] -= ty * f;
+    if (corr > cfg.wakeCorr) {
+        ps.sleepTimer[i] = 0.0f;
+        ps.sleepTimer[j] = 0.0f;
     }
 }
 
@@ -104,12 +113,14 @@ constexpr int kNeighborDy[4] = {0, 1, 1, 1};
 
 // After applyOrder(), balls of one cell are the contiguous range
 // [grid.begin(cell), grid.end(cell)) — all pair access stays cache-local.
-void collideRow(const SpatialGrid& grid, ParticleSystem& ps, const SimulationConfig& cfg, float dt, int cy) {
+void separateRow(const SpatialGrid& grid, ParticleSystem& ps, const SimulationConfig& cfg, int cy) {
     for (int cx = 0; cx < grid.cols; ++cx) {
         int cell = grid.cellIndex(cx, cy);
-        for (int a = grid.begin(cell); a < grid.end(cell); ++a) {
-            for (int b = a + 1; b < grid.end(cell); ++b) {
-                resolvePair(ps, static_cast<std::size_t>(a), static_cast<std::size_t>(b), cfg, dt);
+        if (grid.awakeInCell[cell] > 0) {
+            for (int a = grid.begin(cell); a < grid.end(cell); ++a) {
+                for (int b = a + 1; b < grid.end(cell); ++b) {
+                    separatePair(ps, static_cast<std::size_t>(a), static_cast<std::size_t>(b), cfg);
+                }
             }
         }
         for (int n = 0; n < 4; ++n) {
@@ -117,9 +128,10 @@ void collideRow(const SpatialGrid& grid, ParticleSystem& ps, const SimulationCon
             int ny = cy + kNeighborDy[n];
             if (nx < 0 || nx >= grid.cols || ny >= grid.rows) continue;
             int other = grid.cellIndex(nx, ny);
+            if (grid.awakeInCell[cell] == 0 && grid.awakeInCell[other] == 0) continue;
             for (int a = grid.begin(cell); a < grid.end(cell); ++a) {
                 for (int b = grid.begin(other); b < grid.end(other); ++b) {
-                    resolvePair(ps, static_cast<std::size_t>(a), static_cast<std::size_t>(b), cfg, dt);
+                    separatePair(ps, static_cast<std::size_t>(a), static_cast<std::size_t>(b), cfg);
                 }
             }
         }
@@ -128,11 +140,35 @@ void collideRow(const SpatialGrid& grid, ParticleSystem& ps, const SimulationCon
 
 // Rows of equal parity are processed in parallel; each row writes only balls in
 // its own row and the row below, so same-parity rows never share a ball.
-void collidePairs(const SpatialGrid& grid, ParticleSystem& ps, const SimulationConfig& cfg, float dt, unsigned int numThreads) {
+void separatePairs(const SpatialGrid& grid, ParticleSystem& ps, const SimulationConfig& cfg, unsigned int numThreads) {
     for (int parity = 0; parity < 2; ++parity) {
         parallelFor(static_cast<std::size_t>(grid.rows), numThreads, [&](std::size_t row) {
-            if (static_cast<int>(row & 1u) == parity) collideRow(grid, ps, cfg, dt, static_cast<int>(row));
+            if (static_cast<int>(row & 1u) == parity) separateRow(grid, ps, cfg, static_cast<int>(row));
         });
+    }
+}
+
+// PBD velocity update: velocity is derived from the actual position change,
+// so a resting contact (position restored) ends with v ~ 0 instead of boiling.
+void updateVelocity(ParticleSystem& ps, std::size_t i, const SimulationConfig& cfg, float dt) {
+    if (ps.sleepTimer[i] >= cfg.sleepAfter) {
+        ps.vx[i] = 0.0f;
+        ps.vy[i] = 0.0f;
+        return;
+    }
+    ps.vx[i] = (ps.x[i] - ps.xPrev[i]) / dt;
+    ps.vy[i] = (ps.y[i] - ps.yPrev[i]) / dt;
+    float speed = std::sqrt(ps.vx[i] * ps.vx[i] + ps.vy[i] * ps.vy[i]);
+    // Balls in contact with something get damped hard, so a resting pile stops
+    // churning and can fall asleep. Free-falling balls have no contact flag.
+    if (ps.contact[i] && speed < cfg.contactDampingSpeed) {
+        ps.vx[i] *= cfg.contactDamping;
+        ps.vy[i] *= cfg.contactDamping;
+        speed *= cfg.contactDamping;
+    }
+    if (speed > cfg.maxVelocity) {
+        ps.vx[i] *= cfg.maxVelocity / speed;
+        ps.vy[i] *= cfg.maxVelocity / speed;
     }
 }
 
@@ -142,18 +178,18 @@ void stepSimulation(ParticleSystem& ps, const SimulationConfig& cfg, float dt, u
     if (ps.count == 0) return;
 
     parallelFor(ps.count, numThreads, [&](std::size_t i) { integrateBall(ps, i, cfg, dt); });
-    parallelFor(ps.count, numThreads, [&](std::size_t i) { resolveWall(ps, i, cfg); });
+    parallelFor(ps.count, numThreads, [&](std::size_t i) { clampWall(ps, i, cfg); });
 
     SpatialGrid grid;
-    grid.build(ps, cfg.window.width, cfg.window.height, 2.0f * cfg.maxBallRadius);
+    grid.build(ps, cfg);
     applyOrder(ps, grid.order);
 
     for (int iteration = 0; iteration < cfg.collisionIterations; ++iteration) {
-        collidePairs(grid, ps, cfg, dt, numThreads);
+        separatePairs(grid, ps, cfg, numThreads);
     }
+    parallelFor(ps.count, numThreads, [&](std::size_t i) { clampWall(ps, i, cfg); });
 
-    // Collisions can push balls past a wall; clamp once more so nothing renders outside.
-    parallelFor(ps.count, numThreads, [&](std::size_t i) { resolveWall(ps, i, cfg); });
+    parallelFor(ps.count, numThreads, [&](std::size_t i) { updateVelocity(ps, i, cfg, dt); });
 }
 
 } // namespace phys

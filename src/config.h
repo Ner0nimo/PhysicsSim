@@ -18,15 +18,22 @@ struct SimulationConfig {
 
     float gravity = 1500.0f;            // px/s^2, +y is down (SDL coordinates)
     float wallRestitution = 0.55f;
-    float ballRestitution = 0.35f;
     float wallFriction = 0.05f;         // fraction of tangential velocity removed on wall hit
-    float ballFriction = 0.02f;         // same for ball-ball hits
     float damping = 0.999f;             // velocity retention per fixed step
-    float positionalCorrection = 0.8f;  // fraction of overlap resolved per iteration
+    float contactDamping = 0.2f;        // velocity retained per step for balls in contact (speed < contactDampingSpeed)
+    float contactDampingSpeed = 400.0f; // px/s; falling balls in mid-air have no contact and are unaffected
+    float positionalCorrection = 0.8f;  // fraction of overlap resolved per pair per iteration
+    float maxPairCorrection = 1.0f;     // px; caps one pair's push so deep overlaps can't explode velocities
+    float maxVelocity = 1500.0f;        // px/s; hard speed cap (jet speed is the practical maximum)
     int collisionIterations = 2;
 
+    float sleepSpeed = 60.0f;           // px/s below which a ball counts as "still"
+    float sleepAfter = 0.3f;            // seconds of stillness before a ball sleeps
+    float wakeCorr = 2.0f;              // px of positional push in one step that counts as a hard impact
+    float restitutionThreshold = 50.0f; // px/s; below this, wall contacts are plastic (e=0)
+
     std::size_t maxBalls = 100000;
-    float maxBallRadius = 2.5f;         // grid cell size = 2 * maxBallRadius
+    float maxBallRadius = 1.1f;         // grid cell size = 2 * maxBallRadius
 
     float fixedDt = 1.0f / 60.0f;
     int maxStepsPerFrame = 5;
@@ -41,8 +48,8 @@ struct SpawnRequest {
     float spreadRadians = 0.04f;        // half-angle of the cone — tight beam, little scatter
     float minSpeed = 1500.0f;           // px/s — the "pressure"
     float maxSpeed = 1750.0f;
-    float minRadius = 1.5f;
-    float maxRadius = 2.5f;
+    float minRadius = 0.7f;
+    float maxRadius = 1.1f;
     std::uint32_t color = 0;
 };
 
